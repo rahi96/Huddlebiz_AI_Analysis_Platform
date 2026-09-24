@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Huddlebiz — AI Analysis Platform
 
 A production-ready **Generative AI backend** built with **FastAPI**, **LangChain**, and **Anthropic Claude**. The platform powers the Huddlebiz Cashflow Reports dashboard by fetching deal data and financial documents from the Huddlebiz backend, running AI analysis using Claude (including native PDF parsing), and pushing structured insights back to be displayed in the UI.
@@ -392,3 +393,7 @@ python run.py
 # Verify all routes registered
 .venv\Scripts\python.exe -c "from app.main import app; print(list(app.openapi()['paths'].keys()))"
 ```
+=======
+# Huddlebiz_AI_Analysis_Platform
+The system handles six distinct analysis domains — each mapped to a dashboard tab — and a standalone AI underwriting module that reads all deal documents directly.
+>>>>>>> 3bac24fd5924aff2ff0d378a5fd7a701f2596e79
