@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     session_ttl_days: int = 30
 
     # Backend AI Integration
-    backend_api_url: str = "https://huddlebiz-api.softvenceomegaforce.cloud"
+    backend_api_url: str = "https://api.huddlebiz.com"
     ai_service_token: str = ""
 
 
