@@ -1,0 +1,16 @@
+services:
+  huddlebiz-ai:
+    image: softvence/huddlebiz-ai:latest
+    container_name: huddlebiz-ai
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - AI_SERVICE_TOKEN=${AI_SERVICE_TOKEN}
+      - BACKEND_API_URL=https://api.huddlebiz.com
+      - CLAUDE_MODEL=claude-opus-4-5-20251101
+      - APP_ENV=production
+      - DEBUG=false
+      - HOST=0.0.0.0
+      - PORT=8000
