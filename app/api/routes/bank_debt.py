@@ -9,7 +9,7 @@ from app.services.bank_debt_service import generate_bank_debt_insight
 router = APIRouter(prefix="/api", tags=["bank-debt"])
 
 
-@router.post("/bank-debt", response_model=BankDebtResponse)
+@router.post("/bank-debt", response_model=BankDebtResponse, include_in_schema=False)
 def bank_debt(request: BankDebtRequest):
     try:
         insight = generate_bank_debt_insight(request)

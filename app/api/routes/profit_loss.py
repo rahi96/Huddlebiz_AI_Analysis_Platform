@@ -9,7 +9,7 @@ from app.services.profit_loss_service import generate_profit_loss
 router = APIRouter(prefix="/api", tags=["profit-loss"])
 
 
-@router.post("/profit-loss", response_model=ProfitLossResponse)
+@router.post("/profit-loss", response_model=ProfitLossResponse, include_in_schema=False)
 def profit_loss(request: ProfitLossRequest):
     try:
         insight = generate_profit_loss(request)

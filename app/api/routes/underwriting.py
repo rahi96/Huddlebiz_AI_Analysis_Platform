@@ -9,7 +9,7 @@ from app.services.underwriting_service import generate_underwriting
 router = APIRouter(prefix="/api", tags=["underwriting"])
 
 
-@router.post("/underwriting", response_model=UnderwritingResponse)
+@router.post("/underwriting", response_model=UnderwritingResponse, include_in_schema=False)
 def underwriting(request: UnderwritingRequest):
     try:
         insight = generate_underwriting(request)

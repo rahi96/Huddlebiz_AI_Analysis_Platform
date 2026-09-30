@@ -9,7 +9,7 @@ from app.services.balance_insights_service import generate_balance_insights
 router = APIRouter(prefix="/api", tags=["balance-insights"])
 
 
-@router.post("/balance-insights", response_model=BalanceInsightsResponse)
+@router.post("/balance-insights", response_model=BalanceInsightsResponse, include_in_schema=False)
 def balance_insights(request: BalanceInsightsRequest):
     try:
         insight = generate_balance_insights(request)

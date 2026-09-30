@@ -9,7 +9,7 @@ from app.services.lender_match_service import generate_lender_match
 router = APIRouter(prefix="/api", tags=["lender-match"])
 
 
-@router.post("/lender-match", response_model=LenderMatchResponse)
+@router.post("/lender-match", response_model=LenderMatchResponse, include_in_schema=False)
 def lender_match(request: LenderMatchRequest):
     try:
         insight = generate_lender_match(request)
