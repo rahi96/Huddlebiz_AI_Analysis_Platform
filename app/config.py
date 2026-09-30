@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,7 +15,8 @@ class Settings(BaseSettings):
     # App
     app_name: str = "Huddlebiz"
     app_env: str = "development"
-    debug: bool = True
+    # Aliased to APP_DEBUG to avoid collision with a system-level DEBUG env var
+    debug: bool = Field(default=True, validation_alias="APP_DEBUG")
     host: str = "0.0.0.0"
     port: int = 8000
 
@@ -27,6 +29,10 @@ class Settings(BaseSettings):
     # Backend AI Integration
     backend_api_url: str = "https://api.huddlebiz.com"
     ai_service_token: str = ""
+
+    # Outgoing webhook — POSTed after a successful backend PUT. Empty = disabled.
+    webhook_url: str = ""
+    webhook_token: str = ""
 
 
 settings = Settings()
