@@ -2,22 +2,56 @@
 
 Flow:
   1. Fetch deal package  (GET /api/v1/internal/ai/deals/{id}/package)
-  2. Map backend fields  → readable block for the LLM
-  3. Claude computes     all dashboard sections + narrative
+  2. Download bank statement PDFs and base64-encode them
+  3. Claude reads PDFs natively → extracts all table data + narrative
   4. Push result back    (PUT /api/v1/internal/ai/deals/{id}/cashflow-report  bankDebtSummary)
   5. Return BankDebtInsight to the caller
 """
 
+import base64
 import json
 
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.config import settings
 from app.prompts.system_prompts import DEFAULT_BANK_DEBT_SYSTEM_PROMPT
 from app.schemas.bank_debt import BankDebtInsight, BankDebtRequest
-from app.services.backend_client import fetch_deal_package, push_bank_debt_summary
-from app.services.llm_service import get_chat_llm
+from app.services.backend_client import download_document, fetch_deal_package, push_bank_debt_summary
+
+# 2 bank stmts keeps well under the 200K token limit for large PDFs
+_MAX_BANK_STMTS = 2
 
 _INSIGHT_SCHEMA = BankDebtInsight.model_json_schema()
+
+
+def _collect_pdf_blocks(documents: list[dict]) -> list[dict]:
+    """Download bank statement PDFs and return Claude document content blocks."""
+    count = 0
+    blocks = []
+    for doc in documents:
+        if doc.get("type") != "BANK_STATEMENT":
+            continue
+        if count >= _MAX_BANK_STMTS:
+            continue
+        url = doc.get("downloadUrl") or doc.get("presignedUrl") or doc.get("url") or ""
+        if not url:
+            continue
+        try:
+            pdf_bytes = download_document(url)
+            encoded = base64.standard_b64encode(pdf_bytes).decode("ascii")
+            label = doc.get("fileName") or doc.get("name") or "bank_statement.pdf"
+            blocks.append({
+                "type": "document",
+                "source": {"type": "base64", "media_type": "application/pdf", "data": encoded},
+                "title": f"[BANK_STATEMENT] {label}",
+            })
+            count += 1
+        except Exception:
+            pass
+    if blocks:
+        blocks[-1]["cache_control"] = {"type": "ephemeral"}
+    return blocks
 
 
 def _safe(value, unit: str = "") -> str:
@@ -85,20 +119,27 @@ def _build_prompt(package: dict) -> str:
     schema_str = json.dumps(_INSIGHT_SCHEMA, indent=2)
     return (
         f"Here is the deal data to analyse:\n\n{data_block}\n\n"
+        "If bank statement PDFs are attached above, extract all transaction figures directly "
+        "from them and populate every table field. Do not leave fields null if the data exists in the PDFs.\n\n"
         f"Return ONLY a JSON object conforming to this JSON Schema:\n\n{schema_str}"
     )
 
 
-def _call_llm(package: dict) -> BankDebtInsight:
-    llm = get_chat_llm()
+def _call_llm(pdf_blocks: list[dict], package: dict) -> BankDebtInsight:
+    llm = ChatAnthropic(
+        model=settings.claude_model,
+        api_key=settings.anthropic_api_key,
+        temperature=0.1,
+        max_tokens=16000,
+    )
+    content: list = [*pdf_blocks, {"type": "text", "text": _build_prompt(package)}]
     messages = [
         SystemMessage(content=DEFAULT_BANK_DEBT_SYSTEM_PROMPT),
-        HumanMessage(content=_build_prompt(package)),
+        HumanMessage(content=content),
     ]
     response = llm.invoke(messages)
     raw: str = response.content
 
-    # Strip markdown fences if the model wraps its JSON
     if raw.startswith("```"):
         raw = raw.split("```", 2)[1]
         if raw.startswith("json"):
@@ -110,9 +151,11 @@ def _call_llm(package: dict) -> BankDebtInsight:
 
 def generate_bank_debt_insight(req: BankDebtRequest) -> BankDebtInsight:
     package = fetch_deal_package(req.deal_id)
+    documents = package.get("documents", []) or []
+    pdf_blocks = _collect_pdf_blocks(documents)
 
     try:
-        insight = _call_llm(package)
+        insight = _call_llm(pdf_blocks, package)
     except Exception as exc:
         push_bank_debt_summary(req.deal_id, {}, error_message=str(exc))
         raise
