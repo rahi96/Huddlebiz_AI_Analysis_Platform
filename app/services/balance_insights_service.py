@@ -46,11 +46,13 @@ def _collect_pdf_blocks(documents: list[dict]) -> list[dict]:
                     "data": encoded,
                 },
                 "title": doc.get("name", "bank_statement.pdf"),
-                "cache_control": {"type": "ephemeral"},
             })
         except Exception:
             # Skip inaccessible documents; Claude will fall back to financial estimates
             pass
+    # Anthropic allows max 4 cache_control blocks; mark only the last document
+    if blocks:
+        blocks[-1]["cache_control"] = {"type": "ephemeral"}
     return blocks
 
 
@@ -107,7 +109,7 @@ def _call_llm(pdf_blocks: list[dict], prompt_text: str) -> BalanceInsightsInsigh
         model=settings.claude_model,
         api_key=settings.anthropic_api_key,
         temperature=0.1,
-        max_tokens=8192,
+        max_tokens=16000,
     )
 
     # Build content: PDF document blocks first, then the text prompt

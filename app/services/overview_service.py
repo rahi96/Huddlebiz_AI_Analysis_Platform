@@ -2,22 +2,61 @@
 
 Flow:
   1. Fetch deal package  (GET /api/v1/internal/ai/deals/{id}/package)
-  2. Map backend fields  → readable metrics block
-  3. Claude generates    structured OverviewInsight JSON
-  4. Push result back    (PUT /api/v1/internal/ai/deals/{id}/cashflow-report)
-  5. Return OverviewInsight to the caller
+  2. Download bank statement / tax return PDFs when present
+  3. Map backend fields  → readable metrics block
+  4. Claude reads PDFs + metrics → structured OverviewInsight JSON
+  5. Push result back    (PUT /api/v1/internal/ai/deals/{id}/cashflow-report)
+  6. Return OverviewInsight to the caller
 """
 
+import base64
 import json
 
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.config import settings
 from app.prompts.system_prompts import DEFAULT_OVERVIEW_SYSTEM_PROMPT
 from app.schemas.overview import OverviewInsight, OverviewRequest
-from app.services.backend_client import fetch_deal_package, push_cashflow_overview
-from app.services.llm_service import get_chat_llm
+from app.services.backend_client import download_document, fetch_deal_package, push_cashflow_overview
+
+# Cap per type to stay under Anthropic's 100-page limit
+_MAX_BANK_STMTS = 6
+_MAX_TAX_RETURNS = 2
+_PDF_TYPES = {"BANK_STATEMENT", "TAX_RETURN"}
 
 _INSIGHT_SCHEMA = OverviewInsight.model_json_schema()
+
+
+def _collect_pdf_blocks(documents: list[dict]) -> list[dict]:
+    """Download bank statement and tax return PDFs; return Claude document blocks."""
+    counts: dict[str, int] = {}
+    blocks = []
+    for doc in documents:
+        doc_type = doc.get("type", "")
+        if doc_type not in _PDF_TYPES:
+            continue
+        limit = _MAX_BANK_STMTS if doc_type == "BANK_STATEMENT" else _MAX_TAX_RETURNS
+        if counts.get(doc_type, 0) >= limit:
+            continue
+        url = doc.get("downloadUrl") or doc.get("presignedUrl") or doc.get("url") or ""
+        if not url:
+            continue
+        try:
+            pdf_bytes = download_document(url)
+            encoded = base64.standard_b64encode(pdf_bytes).decode("ascii")
+            label = doc.get("fileName") or doc.get("name") or f"{doc_type.lower()}.pdf"
+            blocks.append({
+                "type": "document",
+                "source": {"type": "base64", "media_type": "application/pdf", "data": encoded},
+                "title": f"[{doc_type}] {label}",
+            })
+            counts[doc_type] = counts.get(doc_type, 0) + 1
+        except Exception:
+            pass
+    if blocks:
+        blocks[-1]["cache_control"] = {"type": "ephemeral"}
+    return blocks
 
 
 def _safe(value, unit: str = "") -> str:
@@ -95,15 +134,24 @@ def _build_prompt(package: dict) -> str:
     schema_str = json.dumps(_INSIGHT_SCHEMA, indent=2)
     return (
         f"Here are the cashflow metrics from the deal application:\n\n{metrics}\n\n"
+        "If bank statement or tax return PDFs are attached above, extract financial figures "
+        "from them and use those values in preference to any N/A application fields.\n\n"
         f"Return ONLY a JSON object conforming to this JSON Schema:\n\n{schema_str}"
     )
 
 
-def _call_llm(package: dict) -> OverviewInsight:
-    llm = get_chat_llm()
+def _call_llm(pdf_blocks: list[dict], package: dict) -> OverviewInsight:
+    llm = ChatAnthropic(
+        model=settings.claude_model,
+        api_key=settings.anthropic_api_key,
+        temperature=0.2,
+        max_tokens=16000,
+    )
+    prompt_text = _build_prompt(package)
+    content: list = [*pdf_blocks, {"type": "text", "text": prompt_text}]
     messages = [
         SystemMessage(content=DEFAULT_OVERVIEW_SYSTEM_PROMPT),
-        HumanMessage(content=_build_prompt(package)),
+        HumanMessage(content=content),
     ]
     response = llm.invoke(messages)
     raw: str = response.content
@@ -120,9 +168,11 @@ def _call_llm(package: dict) -> OverviewInsight:
 
 def generate_overview_insight(req: OverviewRequest) -> OverviewInsight:
     package = fetch_deal_package(req.deal_id)
+    documents = package.get("documents", []) or []
+    pdf_blocks = _collect_pdf_blocks(documents)
 
     try:
-        insight = _call_llm(package)
+        insight = _call_llm(pdf_blocks, package)
     except Exception as exc:
         push_cashflow_overview(req.deal_id, {}, error_message=str(exc))
         raise

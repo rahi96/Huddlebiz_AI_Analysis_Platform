@@ -1,11 +1,16 @@
 import os
 os.environ.pop("DEBUG", None)
 
-import json
+import sys
 import time
-import traceback
 
-DEAL_ID = "bef6d654-f25e-4e39-8f05-16606d2b6ad9"
+DEAL_ID = "a65ef0c3-d1d5-4ab5-9431-dd786d6478db"
+
+# Run: python _test_all_routes.py [a|b|all]  (default: all)
+MODE = sys.argv[1].lower() if len(sys.argv) > 1 else "all"
+if MODE not in ("a", "b", "all"):
+    print(f"Usage: python _test_all_routes.py [a|b|all]")
+    sys.exit(1)
 
 
 def run(label, fn, *args):
@@ -17,9 +22,7 @@ def run(label, fn, *args):
             result = fn(*args)
             data = result.model_dump()
             print(f"  OK (attempt {attempt + 1})")
-            # Print a compact summary + a few key fields
-            keys = list(data.keys())
-            print(f"  Top-level fields: {keys}")
+            print(f"  Top-level fields: {list(data.keys())}")
             for probe in ("summary", "overall_health_score", "overall_health_label",
                           "overall_match_score", "overall_match_label",
                           "confidence_score", "risk_level", "repayment_capacity"):
@@ -38,32 +41,47 @@ def run(label, fn, *args):
 
 results = {}
 
-from app.schemas.overview import OverviewRequest
-from app.services.overview_service import generate_overview_insight
-results["overview"] = run("1. OVERVIEW", generate_overview_insight, OverviewRequest(deal_id=DEAL_ID))
+# ── METHOD A: PUT /underwriting-result ───────────────────────────────────────
+# Services: underwriting, lender-match
+if MODE in ("a", "all"):
+    print("\n" + "#" * 72)
+    print("  METHOD A  →  PUT /underwriting-result")
+    print("#" * 72)
 
-from app.schemas.bank_debt import BankDebtRequest
-from app.services.bank_debt_service import generate_bank_debt_insight
-results["bank-debt"] = run("2. BANK & DEBT", generate_bank_debt_insight, BankDebtRequest(deal_id=DEAL_ID))
+    from app.schemas.underwriting import UnderwritingRequest
+    from app.services.underwriting_service import generate_underwriting
+    results["underwriting"] = run("A1. UNDERWRITING", generate_underwriting, UnderwritingRequest(deal_id=DEAL_ID))
 
-from app.schemas.balance_insights import BalanceInsightsRequest
-from app.services.balance_insights_service import generate_balance_insights
-results["balance-insights"] = run("3. BALANCE INSIGHTS", generate_balance_insights, BalanceInsightsRequest(deal_id=DEAL_ID))
+    from app.schemas.lender_match import LenderMatchRequest
+    from app.services.lender_match_service import generate_lender_match
+    results["lender-match"] = run("A2. LENDER MATCH", generate_lender_match, LenderMatchRequest(deal_id=DEAL_ID))
 
-from app.schemas.profit_loss import ProfitLossRequest
-from app.services.profit_loss_service import generate_profit_loss
-results["profit-loss"] = run("4. PROFIT & LOSS", generate_profit_loss, ProfitLossRequest(deal_id=DEAL_ID))
+# ── METHOD B: PUT /cashflow-report ───────────────────────────────────────────
+# Services: overview, bank-debt, balance-insights, profit-loss
+if MODE in ("b", "all"):
+    print("\n" + "#" * 72)
+    print("  METHOD B  →  PUT /cashflow-report")
+    print("#" * 72)
 
-from app.schemas.lender_match import LenderMatchRequest
-from app.services.lender_match_service import generate_lender_match
-results["lender-match"] = run("5. LENDER MATCH", generate_lender_match, LenderMatchRequest(deal_id=DEAL_ID))
+    from app.schemas.overview import OverviewRequest
+    from app.services.overview_service import generate_overview_insight
+    results["overview"] = run("B1. OVERVIEW", generate_overview_insight, OverviewRequest(deal_id=DEAL_ID))
 
-from app.schemas.underwriting import UnderwritingRequest
-from app.services.underwriting_service import generate_underwriting
-results["underwriting"] = run("6. UNDERWRITING", generate_underwriting, UnderwritingRequest(deal_id=DEAL_ID))
+    from app.schemas.bank_debt import BankDebtRequest
+    from app.services.bank_debt_service import generate_bank_debt_insight
+    results["bank-debt"] = run("B2. BANK & DEBT", generate_bank_debt_insight, BankDebtRequest(deal_id=DEAL_ID))
 
+    from app.schemas.balance_insights import BalanceInsightsRequest
+    from app.services.balance_insights_service import generate_balance_insights
+    results["balance-insights"] = run("B3. BALANCE INSIGHTS", generate_balance_insights, BalanceInsightsRequest(deal_id=DEAL_ID))
+
+    from app.schemas.profit_loss import ProfitLossRequest
+    from app.services.profit_loss_service import generate_profit_loss
+    results["profit-loss"] = run("B4. PROFIT & LOSS", generate_profit_loss, ProfitLossRequest(deal_id=DEAL_ID))
+
+# ── SUMMARY ───────────────────────────────────────────────────────────────────
 print("\n" + "=" * 72)
-print("  FINAL SUMMARY")
+print(f"  FINAL SUMMARY  (deal: {DEAL_ID}  mode: {MODE.upper()})")
 print("=" * 72)
 for name, ok in results.items():
-    print(f"  {'PASS' if ok else 'FAIL'}  /api/{name}")
+    print(f"  {'PASS' if ok else 'FAIL'}  {name}")

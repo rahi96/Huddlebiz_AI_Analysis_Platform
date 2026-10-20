@@ -28,16 +28,24 @@ _INSIGHT_SCHEMA = UnderwritingInsight.model_json_schema()
 # Read every document type — underwriting needs the full picture
 _ALL_DOC_TYPES = {"BANK_STATEMENT", "TAX_RETURN", "ID_DOCUMENT", "SUPPORTING"}
 
+# Per-type caps keep total pages under Anthropic's 100-page limit
+_TYPE_CAPS = {"BANK_STATEMENT": 5, "TAX_RETURN": 2, "ID_DOCUMENT": 2, "SUPPORTING": 1}
+
+_IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+
 
 def _collect_pdf_blocks(documents: list[dict]) -> list[dict]:
-    """Download all documents and return Claude document content blocks."""
+    """Download all documents and return Claude content blocks (document or image)."""
+    counts: dict[str, int] = {}
     blocks = []
     for doc in documents:
-        if doc.get("type") not in _ALL_DOC_TYPES:
+        doc_type = doc.get("type", "")
+        if doc_type not in _ALL_DOC_TYPES:
+            continue
+        if counts.get(doc_type, 0) >= _TYPE_CAPS.get(doc_type, 1):
             continue
         mime = doc.get("mimeType", "application/pdf")
-        # Only attach PDFs and images; skip unsupported types
-        if mime not in ("application/pdf", "image/jpeg", "image/png", "image/webp", "image/gif"):
+        if mime not in ("application/pdf", *_IMAGE_MIMES):
             continue
         url = doc.get("downloadUrl") or doc.get("presignedUrl") or doc.get("url") or ""
         if not url:
@@ -45,21 +53,28 @@ def _collect_pdf_blocks(documents: list[dict]) -> list[dict]:
         try:
             file_bytes = download_document(url)
             encoded = base64.standard_b64encode(file_bytes).decode("ascii")
-            doc_type = doc.get("type", "DOCUMENT")
             label = doc.get("fileName") or doc.get("name") or f"{doc_type.lower()}.pdf"
-            blocks.append({
-                "type": "document",
-                "source": {
-                    "type": "base64",
-                    "media_type": mime,
-                    "data": encoded,
-                },
-                "title": f"[{doc_type}] {label}",
-                "cache_control": {"type": "ephemeral"},
-            })
+            if mime in _IMAGE_MIMES:
+                # Images must use the image content block type, not document
+                blocks.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": mime, "data": encoded},
+                })
+            else:
+                blocks.append({
+                    "type": "document",
+                    "source": {"type": "base64", "media_type": mime, "data": encoded},
+                    "title": f"[{doc_type}] {label}",
+                })
+            counts[doc_type] = counts.get(doc_type, 0) + 1
         except Exception:
             # Skip inaccessible documents; AI will note them as missing
             pass
+    # Anthropic allows max 4 cache_control blocks; mark only the last document block
+    for block in reversed(blocks):
+        if block.get("type") == "document":
+            block["cache_control"] = {"type": "ephemeral"}
+            break
     return blocks
 
 
@@ -126,7 +141,7 @@ def _call_llm(pdf_blocks: list[dict], prompt_text: str) -> UnderwritingInsight:
         model=settings.claude_model,
         api_key=settings.anthropic_api_key,
         temperature=0.1,
-        max_tokens=8192,
+        max_tokens=16000,
     )
 
     content: list = [*pdf_blocks, {"type": "text", "text": prompt_text}]

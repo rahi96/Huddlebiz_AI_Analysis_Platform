@@ -28,11 +28,22 @@ _INSIGHT_SCHEMA = ProfitLossInsight.model_json_schema()
 _PDF_TYPES = {"BANK_STATEMENT", "TAX_RETURN"}
 
 
+# Per-type caps keep total pages under Anthropic's 100-page limit
+_MAX_BANK_STMTS = 6
+_MAX_TAX_RETURNS = 2
+
+
 def _collect_pdf_blocks(documents: list[dict]) -> list[dict]:
     """Download bank statement and tax return PDFs; return Claude document blocks."""
+    counts: dict[str, int] = {}
     blocks = []
     for doc in documents:
-        if doc.get("type") not in _PDF_TYPES:
+        doc_type = doc.get("type", "")
+        if doc_type not in _PDF_TYPES:
+            continue
+        # Cap per type to stay within Anthropic's 100-page limit
+        limit = _MAX_BANK_STMTS if doc_type == "BANK_STATEMENT" else _MAX_TAX_RETURNS
+        if counts.get(doc_type, 0) >= limit:
             continue
         url = doc.get("downloadUrl") or doc.get("presignedUrl") or doc.get("url") or ""
         if not url:
@@ -40,20 +51,19 @@ def _collect_pdf_blocks(documents: list[dict]) -> list[dict]:
         try:
             pdf_bytes = download_document(url)
             encoded = base64.standard_b64encode(pdf_bytes).decode("ascii")
-            label = doc.get("name", f"{doc.get('type', 'document').lower()}.pdf")
+            label = doc.get("name", f"{doc_type.lower()}.pdf")
             blocks.append({
                 "type": "document",
-                "source": {
-                    "type": "base64",
-                    "media_type": "application/pdf",
-                    "data": encoded,
-                },
+                "source": {"type": "base64", "media_type": "application/pdf", "data": encoded},
                 "title": label,
-                "cache_control": {"type": "ephemeral"},
             })
+            counts[doc_type] = counts.get(doc_type, 0) + 1
         except Exception:
             # Skip inaccessible documents; AI will fall back to financial estimates
             pass
+    # Anthropic allows max 4 cache_control blocks; mark only the last document
+    if blocks:
+        blocks[-1]["cache_control"] = {"type": "ephemeral"}
     return blocks
 
 
@@ -127,7 +137,7 @@ def _call_llm(pdf_blocks: list[dict], prompt_text: str) -> ProfitLossInsight:
         model=settings.claude_model,
         api_key=settings.anthropic_api_key,
         temperature=0.1,
-        max_tokens=8192,
+        max_tokens=16000,
     )
 
     content: list = [*pdf_blocks, {"type": "text", "text": prompt_text}]
