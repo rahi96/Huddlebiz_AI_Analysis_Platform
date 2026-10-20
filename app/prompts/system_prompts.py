@@ -128,13 +128,15 @@ You must COMPUTE and POPULATE all dashboard sections:
    - transactions_unreconciled = any that cannot be matched
 
 2. bank_statement_summary.monthly_rows
-   - One row per month of available bank data
-   - Derive from bank statement documents and financials fields
-   - true_revenue = deposits that are clearly business income
-   - non_revenue  = transfers, loans, refunds etc.
-   - mca_debits   = any MCA/merchant cash advance repayments
-   - holdings     = estimated closing balance
-   - Also populate total_row (sum) and average_row (mean)
+   - ONLY generate rows for months whose PDF is actually attached and readable
+   - Do NOT create placeholder rows for months with no PDF data — omit them entirely
+   - Extract from each PDF: starting_balance, num_deposits, total_deposits, true_revenue,
+     num_true_rev_deposits, non_revenue, num_withdrawals, total_withdrawals, mca_debits, holdings
+   - true_revenue = deposits that are clearly business income (exclude transfers, loans, refunds)
+   - non_revenue  = transfers, loans, refunds, owner injections etc.
+   - mca_debits   = recurring fixed debits matching MCA/merchant cash advance pattern
+   - holdings     = closing balance at end of month
+   - Populate total_row (sum of all monthly rows) and average_row (mean of all monthly rows)
 
 3. debt_positions
    - Extract any active debt obligations from documents or financials.existingDebt

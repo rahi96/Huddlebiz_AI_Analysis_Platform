@@ -25,10 +25,11 @@ _MAX_BANK_STMTS = 2
 _INSIGHT_SCHEMA = BankDebtInsight.model_json_schema()
 
 
-def _collect_pdf_blocks(documents: list[dict]) -> list[dict]:
-    """Download bank statement PDFs and return Claude document content blocks."""
+def _collect_pdf_blocks(documents: list[dict]) -> tuple[list[dict], list[str]]:
+    """Download bank statement PDFs; return (content blocks, filename labels)."""
     count = 0
     blocks = []
+    labels = []
     for doc in documents:
         if doc.get("type") != "BANK_STATEMENT":
             continue
@@ -46,12 +47,13 @@ def _collect_pdf_blocks(documents: list[dict]) -> list[dict]:
                 "source": {"type": "base64", "media_type": "application/pdf", "data": encoded},
                 "title": f"[BANK_STATEMENT] {label}",
             })
+            labels.append(label)
             count += 1
         except Exception:
             pass
     if blocks:
         blocks[-1]["cache_control"] = {"type": "ephemeral"}
-    return blocks
+    return blocks, labels
 
 
 def _safe(value, unit: str = "") -> str:
@@ -114,25 +116,30 @@ def _build_data_block(package: dict) -> str:
     return "\n".join(lines)
 
 
-def _build_prompt(package: dict) -> str:
+def _build_prompt(package: dict, pdf_labels: list[str]) -> str:
     data_block = _build_data_block(package)
     schema_str = json.dumps(_INSIGHT_SCHEMA, indent=2)
+    pdf_note = (
+        f"The following {len(pdf_labels)} bank statement PDF(s) are attached: {', '.join(pdf_labels)}.\n"
+        "Extract all figures from ONLY these PDFs. Do NOT create rows for any other months.\n"
+        if pdf_labels else
+        "No bank statement PDFs are attached. Use application financials only.\n"
+    )
     return (
         f"Here is the deal data to analyse:\n\n{data_block}\n\n"
-        "If bank statement PDFs are attached above, extract all transaction figures directly "
-        "from them and populate every table field. Do not leave fields null if the data exists in the PDFs.\n\n"
+        f"{pdf_note}\n"
         f"Return ONLY a JSON object conforming to this JSON Schema:\n\n{schema_str}"
     )
 
 
-def _call_llm(pdf_blocks: list[dict], package: dict) -> BankDebtInsight:
+def _call_llm(pdf_blocks: list[dict], pdf_labels: list[str], package: dict) -> BankDebtInsight:
     llm = ChatAnthropic(
         model=settings.claude_model,
         api_key=settings.anthropic_api_key,
         temperature=0.1,
         max_tokens=16000,
     )
-    content: list = [*pdf_blocks, {"type": "text", "text": _build_prompt(package)}]
+    content: list = [*pdf_blocks, {"type": "text", "text": _build_prompt(package, pdf_labels)}]
     messages = [
         SystemMessage(content=DEFAULT_BANK_DEBT_SYSTEM_PROMPT),
         HumanMessage(content=content),
@@ -152,10 +159,10 @@ def _call_llm(pdf_blocks: list[dict], package: dict) -> BankDebtInsight:
 def generate_bank_debt_insight(req: BankDebtRequest) -> BankDebtInsight:
     package = fetch_deal_package(req.deal_id)
     documents = package.get("documents", []) or []
-    pdf_blocks = _collect_pdf_blocks(documents)
+    pdf_blocks, pdf_labels = _collect_pdf_blocks(documents)
 
     try:
-        insight = _call_llm(pdf_blocks, package)
+        insight = _call_llm(pdf_blocks, pdf_labels, package)
     except Exception as exc:
         push_bank_debt_summary(req.deal_id, {}, error_message=str(exc))
         raise
