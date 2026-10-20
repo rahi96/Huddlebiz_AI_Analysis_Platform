@@ -23,3 +23,5 @@ Thumbs.db
 # Logs
 *.log
 logs/
+# Temp debug scripts
+_debug_*.py
