@@ -26,11 +26,18 @@ from app.services.backend_client import (
 _INSIGHT_SCHEMA = BalanceInsightsInsight.model_json_schema()
 
 
+# Large PDFs can hit both the 100-page and 200K-token limits
+_MAX_BANK_STMTS = 2
+
+
 def _collect_pdf_blocks(documents: list[dict]) -> list[dict]:
     """Download BANK_STATEMENT PDFs and return Claude document content blocks."""
+    count = 0
     blocks = []
     for doc in documents:
         if doc.get("type") != "BANK_STATEMENT":
+            continue
+        if count >= _MAX_BANK_STMTS:
             continue
         url = doc.get("downloadUrl") or doc.get("presignedUrl") or doc.get("url") or ""
         if not url:
@@ -40,13 +47,10 @@ def _collect_pdf_blocks(documents: list[dict]) -> list[dict]:
             encoded = base64.standard_b64encode(pdf_bytes).decode("ascii")
             blocks.append({
                 "type": "document",
-                "source": {
-                    "type": "base64",
-                    "media_type": "application/pdf",
-                    "data": encoded,
-                },
-                "title": doc.get("name", "bank_statement.pdf"),
+                "source": {"type": "base64", "media_type": "application/pdf", "data": encoded},
+                "title": doc.get("fileName") or doc.get("name") or "bank_statement.pdf",
             })
+            count += 1
         except Exception:
             # Skip inaccessible documents; Claude will fall back to financial estimates
             pass

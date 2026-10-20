@@ -28,8 +28,8 @@ _INSIGHT_SCHEMA = UnderwritingInsight.model_json_schema()
 # Read every document type — underwriting needs the full picture
 _ALL_DOC_TYPES = {"BANK_STATEMENT", "TAX_RETURN", "ID_DOCUMENT", "SUPPORTING"}
 
-# Per-type caps keep total pages under Anthropic's 100-page limit
-_TYPE_CAPS = {"BANK_STATEMENT": 5, "TAX_RETURN": 2, "ID_DOCUMENT": 2, "SUPPORTING": 1}
+# Each bank stmt PDF can be ~80-90K tokens; cap at 2 to stay under 200K total
+_TYPE_CAPS = {"BANK_STATEMENT": 2, "TAX_RETURN": 0, "ID_DOCUMENT": 0, "SUPPORTING": 0}
 
 _IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 

@@ -28,9 +28,9 @@ _INSIGHT_SCHEMA = ProfitLossInsight.model_json_schema()
 _PDF_TYPES = {"BANK_STATEMENT", "TAX_RETURN"}
 
 
-# Per-type caps keep total pages under Anthropic's 100-page limit
-_MAX_BANK_STMTS = 6
-_MAX_TAX_RETURNS = 2
+# Large PDFs can hit both the 100-page and 200K-token limits
+_MAX_BANK_STMTS = 2
+_MAX_TAX_RETURNS = 0
 
 
 def _collect_pdf_blocks(documents: list[dict]) -> list[dict]:

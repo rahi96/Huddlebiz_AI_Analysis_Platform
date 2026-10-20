@@ -20,9 +20,9 @@ from app.prompts.system_prompts import DEFAULT_OVERVIEW_SYSTEM_PROMPT
 from app.schemas.overview import OverviewInsight, OverviewRequest
 from app.services.backend_client import download_document, fetch_deal_package, push_cashflow_overview
 
-# Cap per type to stay under Anthropic's 100-page limit
-_MAX_BANK_STMTS = 6
-_MAX_TAX_RETURNS = 2
+# Large PDFs can hit both the 100-page and 200K-token limits; use minimal sample for overview
+_MAX_BANK_STMTS = 2
+_MAX_TAX_RETURNS = 0
 _PDF_TYPES = {"BANK_STATEMENT", "TAX_RETURN"}
 
 _INSIGHT_SCHEMA = OverviewInsight.model_json_schema()
