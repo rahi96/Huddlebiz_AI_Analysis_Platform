@@ -25,3 +25,6 @@ Thumbs.db
 logs/
 # Temp debug scripts
 _debug_*.py
+
+# Server credentials
+*.pem
