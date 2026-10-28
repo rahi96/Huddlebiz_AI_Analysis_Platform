@@ -155,14 +155,17 @@ def _extract_one_statement(doc: dict) -> dict | None:
         "Use the actual statement month for 'month'. true_revenue + non_revenue must equal "
         "total_deposits. holdings is the closing balance. No prose, JSON only."
     )
-    try:
-        response = llm.invoke([
-            SystemMessage(content=STATEMENT_EXTRACTION_SYSTEM_PROMPT),
-            HumanMessage(content=[block, {"type": "text", "text": prompt}]),
-        ])
-        return json.loads(_strip_json(response.content))
-    except Exception:
-        return None
+    # Retry so a transient failure never silently drops a month of financial data
+    for _ in range(3):
+        try:
+            response = llm.invoke([
+                SystemMessage(content=STATEMENT_EXTRACTION_SYSTEM_PROMPT),
+                HumanMessage(content=[block, {"type": "text", "text": prompt}]),
+            ])
+            return json.loads(_strip_json(response.content))
+        except Exception:
+            continue
+    return None
 
 
 def _round(v) -> float | None:

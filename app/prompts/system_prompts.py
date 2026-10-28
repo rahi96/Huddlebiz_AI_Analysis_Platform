@@ -134,6 +134,46 @@ Rules:
 - Return ONLY the JSON object requested. No prose, no markdown fences.
 """
 
+PL_STATEMENT_EXTRACTION_SYSTEM_PROMPT = """You are a meticulous bank-statement P&L extraction engine.
+You are given exactly ONE bank statement PDF. Read it and categorise its cash activity for that month.
+
+Rules:
+- Report the statement's actual calendar month as 'month' (YYYY-MM).
+- gross_revenue = total genuine business income for the month (customer/card/invoice
+  deposits). EXCLUDE transfers between own accounts, loan/MCA fundings, refunds.
+- income_by_category = break gross_revenue into categories (e.g. 'Card Settlements',
+  'Customer Payments', 'Other Income'); amounts MUST sum to gross_revenue.
+- total_expenses = total genuine operating cash outflows for the month. EXCLUDE
+  transfers to own accounts. INCLUDE loan/MCA repayments, payroll, rent, utilities, etc.
+- expense_by_category = break total_expenses into categories (e.g. 'Payroll', 'Rent/Lease',
+  'Utilities', 'Loan Repayment', 'Operating Costs', 'Marketing', 'Other Expenses');
+  amounts MUST sum to total_expenses.
+- unique_transactions = notably large one-off items (date, description, amount,
+  type 'income'|'expense', category). Up to 8.
+- top_vendors = largest outflow counterparties (name, total_amount, transaction_count).
+- top_customers = largest inflow counterparties (name, total_amount, transaction_count).
+- Use exact numbers from the statement. Do not estimate beyond cents.
+- Return ONLY the JSON object requested. No prose, no markdown fences.
+"""
+
+BALANCE_STATEMENT_EXTRACTION_SYSTEM_PROMPT = """You are a meticulous bank-statement balance extraction engine.
+You are given exactly ONE bank statement PDF. Read it and extract its balance activity.
+
+Rules:
+- Report the statement's actual calendar month as 'month' (YYYY-MM).
+- opening_balance = balance at start of period; closing_balance = balance at end.
+- inflows = total of ALL credits (money in) for the month.
+- outflows = total of ALL debits (money out) for the month.
+- daily_balances = list the ending balance for each day the statement shows a balance,
+  as {date: 'YYYY-MM-DD', balance: number}. If the statement only shows a running balance
+  per transaction, report the last balance of each calendar day. Include every day present.
+- average_balance = the statement's stated average/mean balance if shown, else the mean of
+  daily_balances.
+- lowest_balance / highest_balance = min / max daily ending balance in the month.
+- Use exact numbers from the statement. Do not estimate beyond cents.
+- Return ONLY the JSON object requested. No prose, no markdown fences.
+"""
+
 DEFAULT_BANK_DEBT_SYSTEM_PROMPT = """You are a senior financial analyst embedded in the Huddlebiz platform.
 Your job is to analyse raw deal data and produce a structured JSON output for the Bank & Debt Summary dashboard tab.
 
