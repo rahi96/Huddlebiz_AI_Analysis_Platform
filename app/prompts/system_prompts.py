@@ -115,45 +115,70 @@ Rules:
 """
 
 STATEMENT_EXTRACTION_SYSTEM_PROMPT = """You are a meticulous bank statement data-extraction engine.
-You are given exactly ONE bank statement PDF. Read it carefully and extract the real figures.
+You are given exactly ONE bank statement PDF. Read EVERY page and EVERY transaction carefully.
 
-Rules:
-- Report the statement's actual calendar month as 'month' (YYYY-MM).
-- starting_balance = opening balance; holdings = closing/ending balance.
-- total_deposits = sum of ALL credits; num_deposits = count of credit transactions.
-- true_revenue = genuine business income deposits only (card settlements, customer
-  payments, invoices). EXCLUDE transfers between own accounts, loan/MCA fundings,
-  refunds, and owner injections — those go in non_revenue.
+Report the statement's actual calendar month as 'month' (YYYY-MM).
+starting_balance = opening balance; holdings = closing/ending balance.
+total_deposits = sum of ALL credits; num_deposits = count of credit transactions.
+total_withdrawals = sum of ALL debits; num_withdrawals = count of debit transactions.
+
+REVENUE CLASSIFICATION (business-analysis logic — be accurate, do NOT over-exclude):
+- true_revenue = operating business income. INCLUDE: card/merchant settlements
+  (Stripe, Square, Toast, Clover, Amex/Visa deposits), customer/client payments,
+  invoice payments, ACH from customers, cheque deposits from customers, Zelle/
+  cash-app receipts that represent sales, insurance/claim payments for services.
+- non_revenue = ONLY deposits you can clearly identify as NOT operating income:
+  verified transfers from the business's OWN other accounts, loan / MCA / line-of-credit
+  FUNDING disbursements (money borrowed), tax refunds, chargeback reversals, and
+  documented owner capital injections.
+- DEFAULT RULE: if a deposit is ambiguous or you cannot clearly tie it to a
+  loan/transfer/refund, classify it as true_revenue. Most deposits in an operating
+  business ARE revenue. Do NOT dump the bulk of deposits into non_revenue.
 - true_revenue + non_revenue MUST equal total_deposits exactly.
-- total_withdrawals = sum of ALL debits; num_withdrawals = count of debit transactions.
-- mca_debits = sum of fixed recurring debits matching MCA / cash-advance repayment patterns.
-- debt_payments = list every debit that looks like a loan/MCA/financing repayment with
+- num_true_rev_deposits = count of the credit transactions classified as true_revenue.
+
+mca_debits = sum of fixed recurring debits matching MCA / cash-advance repayment patterns.
+debt_payments = every debit that looks like a loan/MCA/financing repayment with
   counterparty name, amount, and date.
-- recurring = recurring inbound/outbound items with counterparty, amount, frequency, category.
-- Use exact numbers from the statement. Do not estimate or round beyond cents.
-- Return ONLY the JSON object requested. No prose, no markdown fences.
+recurring = recurring inbound/outbound items with counterparty, amount, frequency, category.
+
+Use exact numbers from the statement. Do not estimate or round beyond cents.
+Return ONLY the JSON object requested. No prose, no markdown fences.
 """
 
 PL_STATEMENT_EXTRACTION_SYSTEM_PROMPT = """You are a meticulous bank-statement P&L extraction engine.
-You are given exactly ONE bank statement PDF. Read it and categorise its cash activity for that month.
+You are given exactly ONE bank statement PDF. Read EVERY page and categorise its cash activity.
 
-Rules:
-- Report the statement's actual calendar month as 'month' (YYYY-MM).
-- gross_revenue = total genuine business income for the month (customer/card/invoice
-  deposits). EXCLUDE transfers between own accounts, loan/MCA fundings, refunds.
+Report the statement's actual calendar month as 'month' (YYYY-MM).
+
+REVENUE CLASSIFICATION (business-analysis logic — be accurate, do NOT over-exclude):
+- gross_revenue = operating business income for the month. INCLUDE: card/merchant
+  settlements (Stripe, Square, Toast, Clover, card-processor deposits), customer/client
+  payments, invoice payments, customer ACH, customer cheques, sales receipts.
+- EXCLUDE from gross_revenue ONLY clearly-identified non-income credits: transfers from
+  the business's OWN other accounts, loan / MCA / line-of-credit FUNDING (borrowed money),
+  tax refunds, chargeback reversals, owner capital injections.
+- DEFAULT RULE: if a deposit is ambiguous, COUNT it as gross_revenue. Most deposits in an
+  operating business ARE revenue. Do NOT report near-zero revenue when the account clearly
+  receives substantial customer deposits each month.
 - income_by_category = break gross_revenue into categories (e.g. 'Card Settlements',
   'Customer Payments', 'Other Income'); amounts MUST sum to gross_revenue.
-- total_expenses = total genuine operating cash outflows for the month. EXCLUDE
-  transfers to own accounts. INCLUDE loan/MCA repayments, payroll, rent, utilities, etc.
+
+EXPENSES:
+- total_expenses = total genuine operating cash outflows. EXCLUDE transfers to the
+  business's own accounts. INCLUDE loan/MCA repayments, payroll, rent, utilities,
+  supplier/vendor payments, fees, taxes, etc.
 - expense_by_category = break total_expenses into categories (e.g. 'Payroll', 'Rent/Lease',
-  'Utilities', 'Loan Repayment', 'Operating Costs', 'Marketing', 'Other Expenses');
-  amounts MUST sum to total_expenses.
-- unique_transactions = notably large one-off items (date, description, amount,
+  'Utilities', 'Loan Repayment', 'Supplier Payments', 'Operating Costs', 'Marketing',
+  'Fees', 'Other Expenses'); amounts MUST sum to total_expenses.
+
+unique_transactions = notably large one-off items (date, description, amount,
   type 'income'|'expense', category). Up to 8.
-- top_vendors = largest outflow counterparties (name, total_amount, transaction_count).
-- top_customers = largest inflow counterparties (name, total_amount, transaction_count).
-- Use exact numbers from the statement. Do not estimate beyond cents.
-- Return ONLY the JSON object requested. No prose, no markdown fences.
+top_vendors = largest outflow counterparties (name, total_amount, transaction_count).
+top_customers = largest inflow counterparties (name, total_amount, transaction_count).
+
+Use exact numbers from the statement. Do not estimate beyond cents.
+Return ONLY the JSON object requested. No prose, no markdown fences.
 """
 
 BALANCE_STATEMENT_EXTRACTION_SYSTEM_PROMPT = """You are a meticulous bank-statement balance extraction engine.

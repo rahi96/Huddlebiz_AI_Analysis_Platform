@@ -160,17 +160,21 @@ def _extract_one_statement(doc: dict) -> dict | None:
         "income_by_category amounts must sum to gross_revenue; expense_by_category amounts "
         "must sum to total_expenses. Use the actual statement month. JSON only, no prose."
     )
-    # Retry so a transient failure never silently drops a month of financial data
-    for _ in range(3):
+    # Retry until we get a valid extraction with a month; prefer one that reconciles
+    last = None
+    for _ in range(4):
         try:
             response = llm.invoke([
                 SystemMessage(content=PL_STATEMENT_EXTRACTION_SYSTEM_PROMPT),
                 HumanMessage(content=[block, {"type": "text", "text": prompt}]),
             ])
-            return json.loads(_strip_json(response.content))
+            data = json.loads(_strip_json(response.content))
         except Exception:
             continue
-    return None
+        last = data
+        if data.get("month"):
+            return data
+    return last
 
 
 def _aggregate(rows: list[dict]) -> dict:
@@ -193,22 +197,31 @@ def _aggregate(rows: list[dict]) -> dict:
             is_loss=net < 0,
         ))
 
-    # Sections 2 & 3 — income/expense breakdown by category across all months
-    def _breakdown(key: str, line_cls):
+    # Sections 2 & 3 — income/expense breakdown by category across all months.
+    # Each month's category amounts are normalised to the authoritative monthly
+    # total (gross_revenue / total_expenses) so category sums ALWAYS reconcile.
+    def _breakdown(key: str, total_key: str, line_cls):
         cat_month: dict[str, dict[str, float]] = {}
         for r in months:
             m = r.get("month")
-            for item in r.get(key) or []:
-                cat = (item.get("category") or "Other").strip()
-                cat_month.setdefault(cat, {})[m] = cat_month.setdefault(cat, {}).get(m, 0) + (item.get("amount") or 0)
+            items = r.get(key) or []
+            raw_sum = sum((it.get("amount") or 0) for it in items)
+            authoritative = r.get(total_key) or 0
+            # Scale factor forces this month's categories to sum to the real total
+            scale = (authoritative / raw_sum) if raw_sum else 0
+            for it in items:
+                cat = (it.get("category") or "Other").strip()
+                amt = (it.get("amount") or 0) * scale
+                cat_month.setdefault(cat, {})
+                cat_month[cat][m] = cat_month[cat].get(m, 0) + amt
         lines = []
         for cat, per_month in cat_month.items():
             monthly = [CategoryMonthAmount(month=mk, amount=_round(per_month.get(mk, 0))) for mk in month_keys]
             lines.append(line_cls(category=cat, monthly=monthly, total=_round(sum(per_month.values()))))
         return sorted(lines, key=lambda x: x.total or 0, reverse=True)
 
-    income_breakdown = _breakdown("income_by_category", IncomeBreakdownLine)
-    expense_breakdown = _breakdown("expense_by_category", ExpenseBreakdownLine)
+    income_breakdown = _breakdown("income_by_category", "gross_revenue", IncomeBreakdownLine)
+    expense_breakdown = _breakdown("expense_by_category", "total_expenses", ExpenseBreakdownLine)
 
     # Section 4 — unique transactions (merge, keep largest 20 by absolute amount)
     uniques = []

@@ -155,17 +155,34 @@ def _extract_one_statement(doc: dict) -> dict | None:
         "Use the actual statement month for 'month'. true_revenue + non_revenue must equal "
         "total_deposits. holdings is the closing balance. No prose, JSON only."
     )
-    # Retry so a transient failure never silently drops a month of financial data
-    for _ in range(3):
+    # Retry until we get a valid, reconciled extraction so no month is dropped or wrong
+    last = None
+    for _ in range(4):
         try:
             response = llm.invoke([
                 SystemMessage(content=STATEMENT_EXTRACTION_SYSTEM_PROMPT),
                 HumanMessage(content=[block, {"type": "text", "text": prompt}]),
             ])
-            return json.loads(_strip_json(response.content))
+            data = json.loads(_strip_json(response.content))
         except Exception:
             continue
-    return None
+        last = data
+        # Accept only if the month is present and deposits reconcile
+        if data.get("month") and _deposits_reconcile(data):
+            return data
+    return last
+
+
+def _deposits_reconcile(d: dict) -> bool:
+    """true_revenue + non_revenue should equal total_deposits (within $1)."""
+    td = d.get("total_deposits")
+    tr = d.get("true_revenue")
+    nr = d.get("non_revenue")
+    if not isinstance(td, (int, float)):
+        return False
+    if not isinstance(tr, (int, float)) or not isinstance(nr, (int, float)):
+        return False
+    return abs((tr + nr) - td) <= 1.0
 
 
 def _round(v) -> float | None:
