@@ -3,10 +3,11 @@ uvicorn[standard]>=0.30.6
 pydantic>=2.10
 pydantic-settings>=2.6
 sqlalchemy>=2.0.35
-langchain>=0.3.1
-langchain-anthropic>=0.2.1
-langchain-community>=0.3.1
-anthropic>=0.34.2
+# Pin LLM SDKs: anthropic 2.x rejects the temperature kwarg and breaks the app.
+# These versions are validated against claude-opus-4-5; do not loosen without testing.
+# langchain-anthropic pulls a compatible langchain-core automatically.
+langchain-anthropic==1.7.6
+anthropic==1.15.0
 python-dotenv>=1.0.1
 python-multipart>=0.0.9
 Pillow>=11.0
