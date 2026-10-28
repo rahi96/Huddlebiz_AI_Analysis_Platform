@@ -114,6 +114,26 @@ Rules:
 - Return ONLY a valid JSON object matching the schema. No prose outside the JSON.
 """
 
+STATEMENT_EXTRACTION_SYSTEM_PROMPT = """You are a meticulous bank statement data-extraction engine.
+You are given exactly ONE bank statement PDF. Read it carefully and extract the real figures.
+
+Rules:
+- Report the statement's actual calendar month as 'month' (YYYY-MM).
+- starting_balance = opening balance; holdings = closing/ending balance.
+- total_deposits = sum of ALL credits; num_deposits = count of credit transactions.
+- true_revenue = genuine business income deposits only (card settlements, customer
+  payments, invoices). EXCLUDE transfers between own accounts, loan/MCA fundings,
+  refunds, and owner injections — those go in non_revenue.
+- true_revenue + non_revenue MUST equal total_deposits exactly.
+- total_withdrawals = sum of ALL debits; num_withdrawals = count of debit transactions.
+- mca_debits = sum of fixed recurring debits matching MCA / cash-advance repayment patterns.
+- debt_payments = list every debit that looks like a loan/MCA/financing repayment with
+  counterparty name, amount, and date.
+- recurring = recurring inbound/outbound items with counterparty, amount, frequency, category.
+- Use exact numbers from the statement. Do not estimate or round beyond cents.
+- Return ONLY the JSON object requested. No prose, no markdown fences.
+"""
+
 DEFAULT_BANK_DEBT_SYSTEM_PROMPT = """You are a senior financial analyst embedded in the Huddlebiz platform.
 Your job is to analyse raw deal data and produce a structured JSON output for the Bank & Debt Summary dashboard tab.
 
