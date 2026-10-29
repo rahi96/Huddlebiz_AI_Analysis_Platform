@@ -148,12 +148,22 @@ def _extract_one_statement(doc: dict) -> dict | None:
         '{"month": "YYYY-MM", "starting_balance": number, "num_deposits": int, '
         '"total_deposits": number, "true_revenue": number, "num_true_rev_deposits": int, '
         '"non_revenue": number, "num_withdrawals": int, "total_withdrawals": number, '
-        '"mca_debits": number, "holdings": number, '
+        '"mca_debits": number, "holdings": number, "ending_balance": number, '
+        '"average_balance": number, "num_negative_balance_days": int, '
+        '"num_overdraft_or_nsf": int, "num_overdraft_transactions": int, '
+        '"num_low_balance_days": int, "num_dd_reversals": int, '
         '"debt_payments": [{"merchant_counterparty": str, "amount": number, "date": "YYYY-MM-DD"}], '
         '"recurring": [{"merchant_counterparty": str, "amount": number, "frequency": str, '
         '"category": str}]}\n'
         "Use the actual statement month for 'month'. true_revenue + non_revenue must equal "
-        "total_deposits. holdings is the closing balance. No prose, JSON only."
+        "total_deposits. holdings and ending_balance are both the closing balance. "
+        "average_balance = the statement's stated average daily/ledger balance if shown, "
+        "else the mean of the daily ending balances. num_negative_balance_days = days the "
+        "ledger balance was below zero. num_overdraft_or_nsf = count of overdraft/NSF fee "
+        "events. num_overdraft_transactions = transactions that overdrew the account. "
+        "num_low_balance_days = days balance was under $1000. num_dd_reversals = direct-debit/"
+        "ACH return or reversal count. Use 0 (not null) when the statement shows none. "
+        "No prose, JSON only."
     )
     # Retry until we get a valid, reconciled extraction so no month is dropped or wrong
     last = None
@@ -189,23 +199,44 @@ def _round(v) -> float | None:
     return round(v, 2) if isinstance(v, (int, float)) else None
 
 
+def _derive_row_fields(r: dict) -> dict:
+    """Fill ending_balance and holdback_pct for a single statement's data."""
+    holdings = r.get("holdings")
+    if r.get("ending_balance") is None:
+        r["ending_balance"] = holdings
+    deposits = r.get("total_deposits") or 0
+    mca = r.get("mca_debits") or 0
+    if r.get("holdback_pct") is None:
+        r["holdback_pct"] = round(mca / deposits, 4) if deposits else None
+    return r
+
+
 def _aggregate_rows(rows: list[dict]) -> tuple[list[BankStatementRow], BankStatementRow | None, BankStatementRow | None]:
     """Build monthly rows + deterministic TOTAL and AVERAGE (exact Python math)."""
-    monthly = sorted(rows, key=lambda r: r.get("month") or "")
+    monthly = sorted((_derive_row_fields(r) for r in rows), key=lambda r: r.get("month") or "")
     monthly_models = [BankStatementRow(**{k: r.get(k) for k in BankStatementRow.model_fields}) for r in monthly]
     if not monthly:
         return [], None, None
 
-    count_fields = ["num_deposits", "num_true_rev_deposits", "num_withdrawals"]
+    count_fields = [
+        "num_deposits", "num_true_rev_deposits", "num_withdrawals",
+        "num_negative_balance_days", "num_overdraft_or_nsf", "num_overdraft_transactions",
+        "num_low_balance_days", "num_dd_reversals",
+    ]
     money_fields = ["total_deposits", "true_revenue", "non_revenue", "total_withdrawals", "mca_debits"]
     sum_fields = count_fields + money_fields
     totals = {f: sum((r.get(f) or 0) for r in monthly) for f in sum_fields}
     n = len(monthly)
+    avg_bal = [r.get("average_balance") for r in monthly if isinstance(r.get("average_balance"), (int, float))]
+    total_deposits = totals["total_deposits"]
 
     total_row = BankStatementRow(
         month="TOTAL",
         starting_balance=monthly[0].get("starting_balance"),
         holdings=monthly[-1].get("holdings"),
+        ending_balance=monthly[-1].get("ending_balance") or monthly[-1].get("holdings"),
+        average_balance=_round(sum(avg_bal) / len(avg_bal)) if avg_bal else None,
+        holdback_pct=round(totals["mca_debits"] / total_deposits, 4) if total_deposits else None,
         **{f: int(totals[f]) for f in count_fields},
         **{f: _round(totals[f]) for f in money_fields},
     )
@@ -213,6 +244,9 @@ def _aggregate_rows(rows: list[dict]) -> tuple[list[BankStatementRow], BankState
         month="Average",
         starting_balance=_round(sum((r.get("starting_balance") or 0) for r in monthly) / n),
         holdings=_round(sum((r.get("holdings") or 0) for r in monthly) / n),
+        ending_balance=_round(sum((r.get("ending_balance") or 0) for r in monthly) / n),
+        average_balance=_round(sum(avg_bal) / len(avg_bal)) if avg_bal else None,
+        holdback_pct=round((totals["mca_debits"] / n) / (total_deposits / n), 4) if total_deposits else None,
         **{f: round(totals[f] / n) for f in count_fields},
         **{f: _round(totals[f] / n) for f in money_fields},
     )

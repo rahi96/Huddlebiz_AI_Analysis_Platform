@@ -122,6 +122,17 @@ starting_balance = opening balance; holdings = closing/ending balance.
 total_deposits = sum of ALL credits; num_deposits = count of credit transactions.
 total_withdrawals = sum of ALL debits; num_withdrawals = count of debit transactions.
 
+BALANCE METRICS (read the running/ledger balance column carefully):
+- ending_balance = closing balance (same value as holdings).
+- average_balance = the statement's stated average ledger/collected balance if printed;
+  otherwise compute the mean of the daily ending balances across the period. NEVER leave null.
+- num_negative_balance_days = number of days the ending ledger balance was below $0.
+- num_overdraft_or_nsf = count of overdraft or NSF (non-sufficient-funds) fee events.
+- num_overdraft_transactions = count of transactions that drove the balance negative.
+- num_low_balance_days = number of days the ending balance was under $1000.
+- num_dd_reversals = count of direct-debit/ACH returns or reversals.
+- Report 0 (never null) for any of these counts when the statement shows none.
+
 REVENUE CLASSIFICATION (business-analysis logic — be accurate, do NOT over-exclude):
 - true_revenue = operating business income. INCLUDE: card/merchant settlements
   (Stripe, Square, Toast, Clover, Amex/Visa deposits), customer/client payments,

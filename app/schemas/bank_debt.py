@@ -36,6 +36,16 @@ class BankStatementRow(BaseModel):
     total_withdrawals: float | None = Field(default=None)
     mca_debits: float | None = Field(default=None)
     holdings: float | None = Field(default=None, description="End-of-period holdings / closing balance")
+    # Dashboard columns the UI renders alongside the above
+    holdback_pct: float | None = Field(default=None, description="Holdback % (MCA debits / deposits), 0-1")
+    expected_holdback_pct: float | None = Field(default=None, description="Expected holdback % if funded, 0-1")
+    ending_balance: float | None = Field(default=None, description="Closing balance (same as holdings)")
+    average_balance: float | None = Field(default=None, description="Average daily balance for the period")
+    num_negative_balance_days: int | None = Field(default=None, description="# days balance < 0")
+    num_overdraft_or_nsf: int | None = Field(default=None, description="# overdraft or NSF events")
+    num_overdraft_transactions: int | None = Field(default=None, description="# overdraft transactions")
+    num_low_balance_days: int | None = Field(default=None, description="# days balance below low threshold")
+    num_dd_reversals: int | None = Field(default=None, description="# direct-debit reversals")
 
 
 class BankStatementSummary(BaseModel):
